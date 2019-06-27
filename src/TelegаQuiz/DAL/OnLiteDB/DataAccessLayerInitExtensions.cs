@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using System;
+using System.IO;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace TelegаQuiz.DAL.OnLiteDB
 {
@@ -7,8 +9,9 @@ namespace TelegаQuiz.DAL.OnLiteDB
         public static IServiceCollection AddLiteDataAccessLayer(this IServiceCollection @this)
         {
             //Here all database initialization.
-
-            @this.AddSingleton<IDatabaseService>(new LiteDatabaseService());
+            var connectionString = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "database.litedb");
+            var service=new LiteDatabaseService(connectionString);
+            @this.AddSingleton<IDatabaseService>(service);
             return @this;
         }
     }

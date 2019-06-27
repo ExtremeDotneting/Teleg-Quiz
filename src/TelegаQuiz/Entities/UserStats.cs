@@ -4,9 +4,15 @@ using System.Threading.Tasks;
 
 namespace TelegаQuiz.Entities
 {
+    /// <summary>
+    /// Stored in <see cref="ChatStats"/> field.
+    /// </summary>
     public class UserStats
     {
-        public string Username { get; set; }
+        /// <summary>
+        /// Id of <see cref="User"/>.
+        /// </summary>
+        public string MessengerUsername { get; set; }
 
         public int CorrectAnswersCount { get; set; }
 

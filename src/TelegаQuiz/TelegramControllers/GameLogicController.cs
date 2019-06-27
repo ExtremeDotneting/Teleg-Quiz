@@ -6,25 +6,36 @@ using Telegram.Bot.AspNetPipeline.Extensions;
 using Telegram.Bot.AspNetPipeline.Mvc.Controllers.Core;
 using Telegram.Bot.AspNetPipeline.Mvc.Routing.Metadata;
 using Telegram.Bot.Types.Enums;
+using TelegаQuiz.BL;
 using TelegаQuiz.DAL;
 using TelegаQuiz.Entities;
 
 namespace TelegаQuiz.TelegramControllers
 {
-    public class GameController : BotController
+    public class GameLogicController : BotController
     {
-        const string GameSessionKey = "GameSession";
+        const string GameStateKey = "GameState";
 
-        readonly IDatabaseService _db;
+        readonly IGameLogicService _gameLogicService;
 
-        //public GameController(IDatabaseService db)
-        //{
-        //    _db = db;
-        //}
-
-        public GameController()
+        #region Init
+        public GameLogicController(IGameLogicService gameLogicService)
         {
+            _gameLogicService = gameLogicService;
         }
+
+        protected override async Task Initialized()
+        {
+            await base.Initialized();
+            await LoadState();
+        }
+
+        protected override async Task Processed()
+        {
+            await base.Processed();
+            await SaveState();
+        }
+        #endregion
 
         [BotRoute("/help", UpdateType.Message)]
         public async Task Help()
@@ -47,40 +58,35 @@ namespace TelegаQuiz.TelegramControllers
             if (Message.ReplyToMessage?.From != BotContext.BotInfo)
                 return;
 
-            var gameSession = await Session.GetOrDefault<GameSession>(GameSessionKey);
-            if (gameSession == null)
+            if (_gameLogicService.IsStateEmpty(State))
             {
                 await SendTextMessageAsync("Hi, i am Quiz bot. Use /help to see my commands.");
             }
             else
             {
-                //I am too lazy to optimize this. Just check substring in answer.
-                var answerIsRight = Message.Text.Trim().ToLower().Contains(
-                    gameSession.Question.AnswerText.ToLower().Trim()
-                    );
-                if (answerIsRight)
-                {
-                    //TODO Will integrate later...
-                    var chatStats = new ChatStats();
-                    var currentUserStats = new UserStats();
-                    //...
-
-                    await SendTextMessageAsync(
-                        $"Right!\n@{Message.From.Username} score: {currentUserStats.CorrectAnswersCount}",
-                        replyToMessageId: Message.From.Id
+                (bool isRight, UserStats userStats) = await _gameLogicService
+                    .CheckAnswerAndUpdateStats(
+                        Message.Text,
+                        State,
+                        Message.From.Username,
+                        Chat.Id.ToString()
                         );
 
-                    //TODO Save new stats in database.
-                    await NewQuestion(gameSession);
+                if (isRight)
+                {
+                    await SendTextMessageAsync(
+                        $"Right!\n@{Message.From.Username} score: {userStats.CorrectAnswersCount}",
+                        replyToMessageId: Message.MessageId
+                        );
+                    await NewQuestion();
                 }
                 else
                 {
                     await SendTextMessageAsync(
                         "Wrong.",
-                        replyToMessageId: Message.From.Id
+                        replyToMessageId: Message.MessageId
                         );
 
-                    //TODO Update stats in database.
                 }
             }
         }
@@ -88,15 +94,14 @@ namespace TelegаQuiz.TelegramControllers
         [BotRoute("/repeat", UpdateType.Message)]
         public async Task Repeat()
         {
-            //Use only one object to store session. It's not fast (because of serialization), but simple.
-            var gameSession = await Session.GetOrDefault<GameSession>(GameSessionKey);
-            if (gameSession == null)
+            
+            if (_gameLogicService.IsStateEmpty(State))
             {
                 await SendTextMessageAsync("Previous game was finished.\nUse /question to start new game.");
             }
             else
             {
-                var replyTo = gameSession.QuestionMessageId;
+                var replyTo = State.QuestionMessageId;
                 try
                 {
                     //Reply to last question message.
@@ -115,18 +120,20 @@ namespace TelegаQuiz.TelegramControllers
         [BotRoute("/stats", UpdateType.Message)]
         public async Task Stats()
         {
-            //TODO Will integrate later...
-            var chatStats = new ChatStats();
-            //...
+            var messengerUsername = Message.From.Username;
+            var chatId = Chat.Id.ToString();
+            var chatStats = await _gameLogicService.GetChatStats(messengerUsername, chatId);
 
             var msg = "Stats\n";
             foreach (var user in chatStats.UsersStats)
             {
-                int percent = user.CorrectAnswersCount * 100 / user.TotalAnswersCount;
-                msg += $"\n@{user.Username}:" +
-                       $"\n  correct answers: {user.CorrectAnswersCount}" +
-                       $"\n  try to answer: {user.CorrectAnswersCount}" +
-                       $"\n  percentage: {percent}%;";
+                int percent = 0;
+                if (user.TotalAnswersCount != 0)
+                    percent = user.CorrectAnswersCount * 100 / user.TotalAnswersCount;
+                msg += $"\n@{user.MessengerUsername}" +
+                       $"\n    correct answers: {user.CorrectAnswersCount}" +
+                       $"\n    try to answer: {user.TotalAnswersCount}" +
+                       $"\n    percentage: {percent}%;";
             }
             await SendTextMessageAsync(msg);
         }
@@ -134,42 +141,54 @@ namespace TelegаQuiz.TelegramControllers
         [BotRoute("/question", UpdateType.Message)]
         public async Task Question()
         {
-            var gameSession = await Session.GetOrDefault<GameSession>(GameSessionKey);
-            //If game session not exists or can request new question.
-            if (gameSession == null || DateTime.UtcNow - gameSession.LastQuestionUpdate > GameConstants.RequestNewQuestionTimeout)
+            if (_gameLogicService.CanAskNewQuestion(State))
             {
-                await NewQuestion(gameSession);
+                //When game session not exists or can request new question.
+                await NewQuestion();
             }
             else
             {
-                var timeToNextReques = GameConstants.RequestNewQuestionTimeout - (DateTime.UtcNow - gameSession.LastQuestionUpdate);
+                //When users must wait timeout for new question.
+                var timeToNextReques = _gameLogicService.TimeToNextRequest(State);
                 await SendTextMessageAsync($"You can request new question after {timeToNextReques.TotalSeconds} seconds.");
             }
         }
 
-        async Task NewQuestion(GameSession gameSession = null)
+        async Task NewQuestion()
         {
-            gameSession = gameSession ?? new GameSession();
-
-            var oldQuestion = gameSession.Question;
+            var oldQuestion = State.Question;
             if (oldQuestion != null)
             {
                 await SendTextMessageAsync(
                     $"Answer: {oldQuestion.AnswerText}",
-                    replyToMessageId: gameSession.QuestionMessageId
+                    replyToMessageId: State.QuestionMessageId
                     );
             }
 
-            //TODO Here we read it from db and else...
-            var newQuestion = new Question();
-            //...
+            var newQuestion = await _gameLogicService.NewQuestion();
 
             var msg = await SendTextMessageAsync($"Question: {newQuestion.QuestionText}.");
-            gameSession.Question = newQuestion;
-            gameSession.QuestionMessageId = msg.MessageId;
-            gameSession.LastQuestionUpdate = DateTime.UtcNow;
-            await Session.Set(GameSessionKey, gameSession);
+            State.Question = newQuestion;
+            State.QuestionMessageId = msg.MessageId;
+            State.LastQuestionUpdate = DateTime.UtcNow;
+            await SaveState();
         }
 
+        #region Game state.
+        GameState State { get; set; }
+
+        async Task LoadState()
+        {
+            //Use only one object to store session. It's not fast (because of serialization), but simple.
+            var gameState = await Session.GetOrDefault<GameState>(GameStateKey);
+            gameState = gameState ?? new GameState();
+            State = gameState;
+        }
+
+        async Task SaveState()
+        {
+            await Session.Set(GameStateKey, State);
+        }
+        #endregion
     }
 }

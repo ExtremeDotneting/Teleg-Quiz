@@ -10,13 +10,14 @@ using Telegram.Bot.AspNetPipeline.Extensions;
 using Telegram.Bot.AspNetPipeline.Mvc.Builder;
 using Telegram.Bot.AspNetPipeline.Mvc.Extensions;
 using Telegram.Bot.AspNetPipeline.WebhookSupport;
+using TelegаQuiz.BL;
 using TelegаQuiz.DAL.OnLiteDB;
 
 namespace TelegаQuiz
 {
     public class Startup
     {
-        const string _domain = "https://121c50b2.ngrok.io";
+        const string _domain = "https://101733ba.ngrok.io";
 
         BotManager _botManager;
 
@@ -42,6 +43,7 @@ namespace TelegаQuiz
             {
                 //Init our LiteDB.
                 servicesWrap.Services.AddLiteDataAccessLayer();
+                servicesWrap.Services.AddSingleton<IGameLogicService, GameLogicService>();
 
                 servicesWrap.AddMvc(new Telegram.Bot.AspNetPipeline.Mvc.Builder.MvcOptions()
                 {
@@ -70,11 +72,12 @@ namespace TelegаQuiz
 
             _botManager.ConfigureBuilder(builder =>
             {
-                builder.UseExceptionHandler(async (ctx, ex) =>
-                {
-                    await ctx.SendTextMessageAsync("Unhandled bot exception.");
-                    return false;
-                });
+                //builder.UseExceptionHandler(async (ctx, ex) =>
+                //{
+                //    await ctx.SendTextMessageAsync("Unhandled bot exception.");
+                //    return false;
+                //});
+                builder.UseDevEceptionMessage();
                 builder.UseOldUpdatesIgnoring();
                 builder.UseMvc(mvcBuilder =>
                 {

@@ -5,10 +5,10 @@ using System.Threading.Tasks;
 
 namespace TelegаQuiz.Entities
 {
-    public class Question : BaseEntity
+    public class UserEntity : BaseEntity
     {
-        public string QuestionText { get; set; }
+        public string MessengerUsername { get; set; }
 
-        public string AnswerText { get; set; }
+        public AccessLevel AccessLevel { get; set; }
     }
 }

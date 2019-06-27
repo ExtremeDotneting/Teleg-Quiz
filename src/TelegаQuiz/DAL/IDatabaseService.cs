@@ -11,8 +11,14 @@ namespace TelegаQuiz.DAL
     /// </summary>
     public interface IDatabaseService
     {
-        IDbSet<TEntity> Repository<TEntity>() 
-            where TEntity : BaseEntity;
+        IStore<TEntity, TKey> Store<TEntity, TKey>()
+            where TEntity : BaseEntity<TKey>;
+
+        IQuestionStore StoreQuestions();
+
+        IChatStatsStore StoreChatStats();
+
+        IUserEntityStore StoreUserEntity();
 
     }
 }

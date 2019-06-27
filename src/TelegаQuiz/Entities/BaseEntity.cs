@@ -2,11 +2,17 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LiteDB;
 
 namespace TelegаQuiz.Entities
 {
-    public class BaseEntity
+    public class BaseEntity<TKey>
     {
-        public int Id { get; set; }
+        [BsonId(true)]
+        public TKey Id { get; set; }
+    }
+
+    public class BaseEntity:BaseEntity<int>
+    {
     }
 }
